@@ -20,13 +20,13 @@ def extrair_proventos(pdf_path, output_excel):
 
             for linha in linhas:
 
-                # Detecta ticker (linha >>>)
+                # Detecta ticker
                 ticker_match = re.search(r">>>.*?\b([A-Z]{4}\d)\b", linha)
                 if ticker_match:
                     ticker_atual = ticker_match.group(1)
                     continue
 
-                # Captura linhas com valores
+                # Linhas com valores
                 if ticker_atual and "R$" in linha and "Pagamento" not in linha:
 
                     valores = re.findall(r"R\$\s?[\d.,]+", linha)
@@ -34,7 +34,6 @@ def extrair_proventos(pdf_path, output_excel):
 
                     if valores and data:
 
-                        # Valor líquido é o último
                         valor = valores[-1]
                         valor = (
                             valor.replace("R$", "")
@@ -48,8 +47,8 @@ def extrair_proventos(pdf_path, output_excel):
                         registros.append({
                             "Ativo": ticker_atual,
                             "MesNum": dt.month,
-                            "MesNome": dt.strftime("%b/%y"),
                             "Ano": dt.year,
+                            "MesNome": dt.strftime("%b/%y"),
                             "Valor": float(valor)
                         })
 
@@ -58,9 +57,10 @@ def extrair_proventos(pdf_path, output_excel):
 
     df = pd.DataFrame(registros)
 
-    # Ordem cronológica real
+    # Chave cronológica REAL
     df["Ordem"] = df["Ano"] * 100 + df["MesNum"]
 
+    # Pivot
     tabela = df.pivot_table(
         index="Ativo",
         columns="Ordem",
@@ -68,21 +68,3 @@ def extrair_proventos(pdf_path, output_excel):
         aggfunc="sum",
         fill_value=0
     )
-
-    # Mapear nome bonito das colunas
-    mapa = (
-        df.drop_duplicates("Ordem")
-        .set_index("Ordem")["MesNome"]
-        .to_dict()
-    )
-
-    tabela.rename(columns=mapa, inplace=True)
-
-    # Ordenar colunas corretamente
-    tabela = tabela.reindex(sorted(tabela.columns, key=lambda x: list(mapa.values()).index(x)), axis=1)
-
-    tabela["Total"] = tabela.sum(axis=1)
-
-    tabela.to_excel(output_excel)
-
-    return True
