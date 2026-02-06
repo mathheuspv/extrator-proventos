@@ -3,6 +3,7 @@ import pandas as pd
 import re
 from datetime import datetime
 
+
 def extrair_proventos(pdf_path, output_excel):
 
     registros = []
@@ -19,13 +20,13 @@ def extrair_proventos(pdf_path, output_excel):
 
             for linha in linhas:
 
-                # Detecta mudança de ativo
+                # Detecta ticker (linha >>>)
                 ticker_match = re.search(r">>>.*?\b([A-Z]{4}\d)\b", linha)
                 if ticker_match:
                     ticker_atual = ticker_match.group(1)
                     continue
 
-                # Linhas de valores
+                # Captura linhas com valores
                 if ticker_atual and "R$" in linha and "Pagamento" not in linha:
 
                     valores = re.findall(r"R\$\s?[\d.,]+", linha)
@@ -33,17 +34,22 @@ def extrair_proventos(pdf_path, output_excel):
 
                     if valores and data:
 
+                        # Valor líquido é o último
                         valor = valores[-1]
-                        valor = valor.replace("R$", "").replace(".", "").replace(",", ".").strip()
+                        valor = (
+                            valor.replace("R$", "")
+                            .replace(".", "")
+                            .replace(",", ".")
+                            .strip()
+                        )
 
-                        mes = datetime.strptime(
-                            data.group(),
-                            "%d/%m/%Y"
-                        ).strftime("%b")
+                        dt = datetime.strptime(data.group(), "%d/%m/%Y")
 
                         registros.append({
                             "Ativo": ticker_atual,
-                            "Mes": mes,
+                            "MesNum": dt.month,
+                            "MesNome": dt.strftime("%b/%y"),
+                            "Ano": dt.year,
                             "Valor": float(valor)
                         })
 
@@ -52,13 +58,28 @@ def extrair_proventos(pdf_path, output_excel):
 
     df = pd.DataFrame(registros)
 
+    # Ordem cronológica real
+    df["Ordem"] = df["Ano"] * 100 + df["MesNum"]
+
     tabela = df.pivot_table(
         index="Ativo",
-        columns="Mes",
+        columns="Ordem",
         values="Valor",
         aggfunc="sum",
         fill_value=0
     )
+
+    # Mapear nome bonito das colunas
+    mapa = (
+        df.drop_duplicates("Ordem")
+        .set_index("Ordem")["MesNome"]
+        .to_dict()
+    )
+
+    tabela.rename(columns=mapa, inplace=True)
+
+    # Ordenar colunas corretamente
+    tabela = tabela.reindex(sorted(tabela.columns, key=lambda x: list(mapa.values()).index(x)), axis=1)
 
     tabela["Total"] = tabela.sum(axis=1)
 
