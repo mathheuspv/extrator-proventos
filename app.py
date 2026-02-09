@@ -3,18 +3,12 @@ import os
 import pandas as pd
 from parser_proventos import extrair_proventos
 
-# ===============================
-# CONFIG
-# ===============================
-
 st.set_page_config(page_title="Extrator XP", layout="centered")
 
-ADMIN_PASSWORD = "xp2026"  # <<< MUDE AQUI SE QUISER
+ADMIN_PASSWORD = "xp2026"
 
 
-# ===============================
-# HEADER
-# ===============================
+# ================= HEADER =================
 
 st.title("📊 Extrator de Proventos – XP")
 
@@ -25,17 +19,12 @@ with col1:
         st.rerun()
 
 with col2:
-    st.link_button(
-        "🌐 Baixar Extratos XP",
-        "https://portal.xpi.com.br/"
-    )
+    st.link_button("🌐 Baixar Extratos XP", "https://portal.xpi.com.br/")
 
-# ===============================
-# LOGIN ADMIN
-# ===============================
+
+# ================= LOGIN =================
 
 st.sidebar.title("🔐 Admin")
-
 admin_logado = False
 senha = st.sidebar.text_input("Senha admin", type="password")
 
@@ -44,9 +33,7 @@ if senha == ADMIN_PASSWORD:
     st.sidebar.success("Admin autenticado")
 
 
-# ===============================
-# INPUTS CLIENTE
-# ===============================
+# ================= INPUTS =================
 
 assessor = st.text_input("Código do Assessor")
 conta = st.text_input("Conta do Cliente")
@@ -57,9 +44,7 @@ proventos = st.file_uploader("Proventos PDF", type="pdf")
 BASE_DIR = "uploads"
 
 
-# ===============================
-# PROCESSAR PROVENTOS
-# ===============================
+# ================= PROVENTOS =================
 
 if st.button("Processar Proventos"):
 
@@ -83,27 +68,17 @@ if st.button("Processar Proventos"):
         with open(proventos_path, "wb") as f:
             f.write(proventos.read())
 
-        st.success("Arquivos salvos 🚀")
-
         excel_path = f"{pasta_cliente}/relatorio.xlsx"
         sucesso = extrair_proventos(proventos_path, excel_path)
 
         if sucesso:
-            st.success("Excel gerado 🎉")
-
             with open(excel_path, "rb") as f:
-                st.download_button(
-                    "⬇️ Baixar Relatório",
-                    f,
-                    file_name="relatorio.xlsx"
-                )
+                st.download_button("⬇️ Baixar Relatório", f)
         else:
             st.error("Não consegui identificar tabelas no PDF")
 
 
-# ===============================
-# UPLOAD CONSENSO (ADMIN)
-# ===============================
+# ================= CONSENSO ADMIN =================
 
 if admin_logado:
 
@@ -119,12 +94,10 @@ if admin_logado:
         with open("consenso_atual.xlsx", "wb") as f:
             f.write(consenso_file.getbuffer())
 
-        st.success("Consenso atualizado ✅")
+        st.success("Consenso atualizado")
 
 
-# ===============================
-# CRUZAMENTO POSIÇÃO x CONSENSO
-# ===============================
+# ================= CRUZAMENTO =================
 
 st.divider()
 st.header("📈 Cruzar Posição x Consenso")
@@ -137,31 +110,35 @@ posicao_file = st.file_uploader(
 
 if posicao_file:
 
-    try:
-        posicao = pd.read_excel(posicao_file)
-        consenso = pd.read_excel("consenso_atual.xlsx")
+    posicao = pd.read_excel(posicao_file)
+    consenso = pd.read_excel("consenso_atual.xlsx")
 
-    except:
-        st.error("Consenso ainda não carregado no sistema")
+    # Mostrar colunas para debug
+    st.write("Colunas detectadas na posição:")
+    st.write(list(posicao.columns))
+
+    # Busca SUPER robusta
+    possiveis = [
+        "TICK", "ATIVO", "COD", "PROD", "PAPEL",
+        "CÓDIGO", "CODIGO", "SYMBOL"
+    ]
+
+    col_pos = None
+    for p in possiveis:
+        for c in posicao.columns:
+            if p in str(c).upper():
+                col_pos = c
+                break
+        if col_pos:
+            break
+
+    if col_pos is None:
+        st.error("Não encontrei ticker — me manda print das colunas")
         st.stop()
 
-    # ===== achar colunas automaticamente =====
-
-    def achar_coluna(df, termos):
-        for termo in termos:
-            for col in df.columns:
-                if termo in col.upper():
-                    return col
-        return None
-
-    col_pos = achar_coluna(posicao, ["TICK", "ATIVO", "COD"])
-    col_con = achar_coluna(consenso, ["TICK", "ATIVO", "COD"])
-    col_alvo = achar_coluna(consenso, ["ALVO", "TARGET"])
-    col_preco = achar_coluna(consenso, ["PRECO", "PRICE"])
-
-    if not col_pos or not col_con:
-        st.error("Não consegui identificar colunas de ticker")
-        st.stop()
+    col_con = consenso.columns[0]
+    col_alvo = consenso.columns[1]
+    col_preco = consenso.columns[2]
 
     df_pos = posicao[[col_pos]].copy()
     df_pos.columns = ["Ticker"]
@@ -171,24 +148,14 @@ if posicao_file:
 
     cruzado = df_pos.merge(df_con, on="Ticker", how="left")
 
-    # ===== calcular upside =====
-
-    if "Preco_Alvo" in cruzado.columns and "Preco_Atual" in cruzado.columns:
-        cruzado["Upside %"] = (
-            (cruzado["Preco_Alvo"] - cruzado["Preco_Atual"])
-            / cruzado["Preco_Atual"]
-        ) * 100
-
-    st.success("Cruzamento concluído")
+    cruzado["Upside %"] = (
+        (cruzado["Preco_Alvo"] - cruzado["Preco_Atual"])
+        / cruzado["Preco_Atual"]
+    ) * 100
 
     st.dataframe(cruzado)
 
-    excel_saida = "cruzamento.xlsx"
-    cruzado.to_excel(excel_saida, index=False)
+    cruzado.to_excel("cruzamento.xlsx", index=False)
 
-    with open(excel_saida, "rb") as f:
-        st.download_button(
-            "⬇️ Baixar Cruzamento",
-            f,
-            file_name="cruzamento.xlsx"
-        )
+    with open("cruzamento.xlsx", "rb") as f:
+        st.download_button("⬇️ Baixar Cruzamento", f)
