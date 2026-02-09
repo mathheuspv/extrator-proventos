@@ -1,14 +1,19 @@
 import streamlit as st
 import os
 import pandas as pd
-
 from parser_proventos import extrair_proventos
+
+# ===============================
+# CONFIG
+# ===============================
 
 st.set_page_config(page_title="Extrator XP", layout="centered")
 
-# ================================
+ADMIN_PASSWORD = "xp2026"   # <<< MUDE AQUI
+
+# ===============================
 # HEADER
-# ================================
+# ===============================
 
 st.title("📊 Extrator de Proventos – XP")
 
@@ -24,9 +29,22 @@ with col2:
         "https://portal.xpi.com.br/"
     )
 
-# ================================
-# INPUTS
-# ================================
+# ===============================
+# LOGIN ADMIN
+# ===============================
+
+st.sidebar.title("🔐 Admin")
+
+admin_logado = False
+senha = st.sidebar.text_input("Senha admin", type="password")
+
+if senha == ADMIN_PASSWORD:
+    admin_logado = True
+    st.sidebar.success("Admin autenticado")
+
+# ===============================
+# INPUTS CLIENTE
+# ===============================
 
 assessor = st.text_input("Código do Assessor")
 conta = st.text_input("Conta do Cliente")
@@ -36,9 +54,9 @@ proventos = st.file_uploader("Proventos PDF", type="pdf")
 
 BASE_DIR = "uploads"
 
-# ================================
+# ===============================
 # PROCESSAR PROVENTOS
-# ================================
+# ===============================
 
 if st.button("Processar Proventos"):
 
@@ -65,7 +83,6 @@ if st.button("Processar Proventos"):
         st.success("Arquivos salvos 🚀")
 
         excel_path = f"{pasta_cliente}/relatorio.xlsx"
-
         sucesso = extrair_proventos(proventos_path, excel_path)
 
         if sucesso:
@@ -80,32 +97,33 @@ if st.button("Processar Proventos"):
         else:
             st.error("Não consegui identificar tabelas no PDF")
 
-        st.code(pasta_cliente)
+
+# ===============================
+# UPLOAD CONSENSO (ADMIN)
+# ===============================
+
+if admin_logado:
+
+    st.divider()
+    st.header("📥 Upload Consenso XP")
+
+    consenso_file = st.file_uploader(
+        "Enviar planilha consenso",
+        type=["xlsx", "xlsm"]
+    )
+
+    if consenso_file:
+        with open("consenso_atual.xlsx", "wb") as f:
+            f.write(consenso_file.getbuffer())
+
+        st.success("Consenso atualizado ✅")
 
 
-# ================================
-# CONSENSO XP
-# ================================
+# ===============================
+# CRUZAMENTO POSIÇÃO x CONSENSO
+# ===============================
 
-st.header("📥 Upload Consenso XP")
-
-consenso_file = st.file_uploader(
-    "Enviar planilha consenso",
-    type=["xlsx", "xlsm"],
-    key="consenso"
-)
-
-if consenso_file:
-    with open("consenso_atual.xlsx", "wb") as f:
-        f.write(consenso_file.getbuffer())
-
-    st.success("Consenso salvo no sistema")
-
-
-# ================================
-# POSIÇÃO CLIENTE
-# ================================
-
+st.divider()
 st.header("📈 Cruzar Posição x Consenso")
 
 posicao_file = st.file_uploader(
@@ -114,12 +132,17 @@ posicao_file = st.file_uploader(
     key="posicao"
 )
 
-if posicao_file and consenso_file:
+if posicao_file:
 
-    posicao = pd.read_excel(posicao_file)
-    consenso = pd.read_excel("consenso_atual.xlsx")
+    try:
+        posicao = pd.read_excel(posicao_file)
+        consenso = pd.read_excel("consenso_atual.xlsx")
 
-    # ========= achar colunas automaticamente ========
+    except:
+        st.error("Consenso ainda não carregado no sistema")
+        st.stop()
+
+    # ========= achar colunas automaticamente =========
 
     def achar_coluna(df, termos):
         for t in termos:
@@ -143,17 +166,12 @@ if posicao_file and consenso_file:
     df_con = consenso[[col_con, col_alvo, col_preco]].copy()
     df_con.columns = ["Ticker", "Preco_Alvo", "Preco_Atual"]
 
-    # ========= merge =========
-
     cruzado = df_pos.merge(df_con, on="Ticker", how="left")
 
-    # ========= calcular upside =========
-
-    if "Preco_Alvo" in cruzado and "Preco_Atual" in cruzado:
-        cruzado["Upside %"] = (
-            (cruzado["Preco_Alvo"] - cruzado["Preco_Atual"])
-            / cruzado["Preco_Atual"]
-        ) * 100
+    cruzado["Upside %"] = (
+        (cruzado["Preco_Alvo"] - cruzado["Preco_Atual"])
+        / cruzado["Preco_Atual"]
+    ) * 100
 
     st.success("Cruzamento concluído")
 
