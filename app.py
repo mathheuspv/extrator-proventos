@@ -48,34 +48,24 @@ BASE_DIR = "uploads"
 
 if st.button("Processar Proventos"):
 
-    if not assessor or not conta:
-        st.error("Preencha assessor e conta")
+    if assessor and conta and extrato and proventos:
 
-    elif not extrato or not proventos:
-        st.error("Envie os dois PDFs")
+        pasta = f"{BASE_DIR}/assessor_{assessor}/cliente_{conta}"
+        os.makedirs(pasta, exist_ok=True)
 
-    else:
+        open(f"{pasta}/extrato.pdf","wb").write(extrato.read())
+        open(f"{pasta}/proventos.pdf","wb").write(proventos.read())
 
-        pasta_cliente = f"{BASE_DIR}/assessor_{assessor}/cliente_{conta}"
-        os.makedirs(pasta_cliente, exist_ok=True)
+        excel_path = f"{pasta}/relatorio.xlsx"
 
-        extrato_path = f"{pasta_cliente}/extrato.pdf"
-        proventos_path = f"{pasta_cliente}/proventos.pdf"
-
-        with open(extrato_path, "wb") as f:
-            f.write(extrato.read())
-
-        with open(proventos_path, "wb") as f:
-            f.write(proventos.read())
-
-        excel_path = f"{pasta_cliente}/relatorio.xlsx"
-        sucesso = extrair_proventos(proventos_path, excel_path)
-
-        if sucesso:
-            with open(excel_path, "rb") as f:
+        if extrair_proventos(f"{pasta}/proventos.pdf", excel_path):
+            with open(excel_path,"rb") as f:
                 st.download_button("⬇️ Baixar Relatório", f)
         else:
-            st.error("Não consegui identificar tabelas no PDF")
+            st.error("Falha ao ler PDF")
+
+    else:
+        st.error("Preencha tudo")
 
 
 # ================= CONSENSO ADMIN =================
@@ -85,16 +75,37 @@ if admin_logado:
     st.divider()
     st.header("📥 Upload Consenso XP")
 
-    consenso_file = st.file_uploader(
-        "Enviar planilha consenso",
-        type=["xlsx", "xlsm"]
-    )
+    consenso_file = st.file_uploader("Enviar consenso", type=["xlsx","xlsm"])
 
     if consenso_file:
-        with open("consenso_atual.xlsx", "wb") as f:
+        with open("consenso_atual.xlsx","wb") as f:
             f.write(consenso_file.getbuffer())
 
         st.success("Consenso atualizado")
+
+
+# ================= FUNÇÃO DETECT HEADER XP =================
+
+def ler_posicao_xp(file):
+
+    raw = pd.read_excel(file, header=None)
+
+    linha_header = None
+
+    for i in range(20):
+        linha = raw.iloc[i].astype(str).str.upper()
+
+        if any("ATIVO" in x for x in linha):
+            linha_header = i
+            break
+
+    if linha_header is None:
+        st.error("Não achei início da tabela XP")
+        st.stop()
+
+    df = pd.read_excel(file, header=linha_header)
+
+    return df
 
 
 # ================= CRUZAMENTO =================
@@ -102,60 +113,45 @@ if admin_logado:
 st.divider()
 st.header("📈 Cruzar Posição x Consenso")
 
-posicao_file = st.file_uploader(
-    "Enviar posição consolidada",
-    type=["xlsx"],
-    key="posicao"
-)
+posicao_file = st.file_uploader("Enviar posição", type=["xlsx"], key="pos")
 
 if posicao_file:
 
-    posicao = pd.read_excel(posicao_file)
+    posicao = ler_posicao_xp(posicao_file)
     consenso = pd.read_excel("consenso_atual.xlsx")
 
-    # Mostrar colunas para debug
-    st.write("Colunas detectadas na posição:")
+    st.write("Colunas posição detectadas:")
     st.write(list(posicao.columns))
 
-    # Busca SUPER robusta
-    possiveis = [
-        "TICK", "ATIVO", "COD", "PROD", "PAPEL",
-        "CÓDIGO", "CODIGO", "SYMBOL"
-    ]
+    # localizar ticker
+    ticker_col = None
+    for c in posicao.columns:
+        if "ATIVO" in str(c).upper():
+            ticker_col = c
 
-    col_pos = None
-    for p in possiveis:
-        for c in posicao.columns:
-            if p in str(c).upper():
-                col_pos = c
-                break
-        if col_pos:
-            break
-
-    if col_pos is None:
-        st.error("Não encontrei ticker — me manda print das colunas")
+    if ticker_col is None:
+        st.error("Não achei coluna ATIVO")
         st.stop()
 
-    col_con = consenso.columns[0]
-    col_alvo = consenso.columns[1]
-    col_preco = consenso.columns[2]
-
-    df_pos = posicao[[col_pos]].copy()
+    df_pos = posicao[[ticker_col]].copy()
     df_pos.columns = ["Ticker"]
 
-    df_con = consenso[[col_con, col_alvo, col_preco]].copy()
-    df_con.columns = ["Ticker", "Preco_Alvo", "Preco_Atual"]
+    # consenso (assume padrão)
+    df_con = consenso.iloc[:,0:3]
+    df_con.columns = ["Ticker","Preco_Alvo","Preco_Atual"]
 
-    cruzado = df_pos.merge(df_con, on="Ticker", how="left")
+    cruzado = df_pos.merge(df_con,on="Ticker",how="left")
 
     cruzado["Upside %"] = (
         (cruzado["Preco_Alvo"] - cruzado["Preco_Atual"])
         / cruzado["Preco_Atual"]
     ) * 100
 
+    st.success("Cruzamento pronto")
+
     st.dataframe(cruzado)
 
-    cruzado.to_excel("cruzamento.xlsx", index=False)
+    cruzado.to_excel("cruzamento.xlsx",index=False)
 
-    with open("cruzamento.xlsx", "rb") as f:
+    with open("cruzamento.xlsx","rb") as f:
         st.download_button("⬇️ Baixar Cruzamento", f)
