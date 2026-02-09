@@ -1,51 +1,119 @@
+import pdfplumber
 import pandas as pd
-import streamlit as st
+import re
+from datetime import datetime
 
 
-# ========= FUNÇÃO INTELIGENTE =========
-def carregar_posicao(uploaded_file):
+# ==========================================================
+# FUNÇÃO PRINCIPAL
+# ==========================================================
+def extrair_proventos(pdf_path, output_excel):
 
-    # tentativa 1 — leitura normal
-    df = pd.read_excel(uploaded_file)
+    registros = []
+    ticker_atual = None
 
-    if any("Ativo" in str(c) for c in df.columns):
-        return df
+    print("🔎 Lendo PDF...")
 
-    # tentativa 2 — procurar header manualmente
-    raw = pd.read_excel(uploaded_file, header=None)
+    with pdfplumber.open(pdf_path) as pdf:
 
-    for i in range(len(raw)):
-        linha = raw.iloc[i].astype(str)
+        for page in pdf.pages:
 
-        if linha.str.contains("Ativo", case=False).any():
-            df = pd.read_excel(uploaded_file, header=i)
-            return df
+            texto = page.extract_text()
 
-    raise Exception("Não consegui identificar tabela da posição")
+            if not texto:
+                continue
+
+            linhas = texto.split("\n")
+
+            for linha in linhas:
+
+                # ==================================================
+                # DETECTAR TICKER (ROBUSTO)
+                # ==================================================
+                ticker_match = re.search(r"\b[A-Z]{4}\d{1,2}\b", linha)
+
+                if ticker_match:
+                    ticker_atual = ticker_match.group()
+
+                # ==================================================
+                # DETECTAR DATA + VALOR
+                # ==================================================
+                if ticker_atual:
+
+                    data_match = re.search(r"\d{2}/\d{2}/\d{4}", linha)
+                    valores = re.findall(r"R\$\s?[\d.,]+", linha)
+
+                    if data_match and valores:
+
+                        try:
+                            valor = valores[-1]
+
+                            valor = (
+                                valor.replace("R$", "")
+                                .replace(".", "")
+                                .replace(",", ".")
+                                .strip()
+                            )
+
+                            dt = datetime.strptime(
+                                data_match.group(),
+                                "%d/%m/%Y"
+                            )
+
+                            registros.append({
+                                "Ativo": ticker_atual,
+                                "MesNum": dt.month,
+                                "Ano": dt.year,
+                                "MesNome": dt.strftime("%b/%y"),
+                                "Valor": float(valor)
+                            })
+
+                        except Exception as e:
+                            print("Erro parse:", e)
+                            pass
 
 
-# ========= UPLOAD POSIÇÃO =========
-st.header("📈 Cruzar Posição x Consenso")
+    # ==========================================================
+    # SE NÃO ENCONTROU NADA
+    # ==========================================================
+    if not registros:
+        print("❌ Nenhum provento encontrado")
+        return False
 
-posicao_file = st.file_uploader(
-    "Enviar posição consolidada",
-    type=["xlsx"],
-    key="posicao"
-)
 
-if posicao_file:
+    # ==========================================================
+    # TABELA FINAL
+    # ==========================================================
+    df = pd.DataFrame(registros)
 
-    try:
-        pos = carregar_posicao(posicao_file)
+    df["Ordem"] = df["Ano"] * 100 + df["MesNum"]
 
-        st.success("Posição carregada com sucesso ✅")
+    tabela = df.pivot_table(
+        index="Ativo",
+        columns="Ordem",
+        values="Valor",
+        aggfunc="sum",
+        fill_value=0
+    )
 
-        # mostrar colunas detectadas
-        st.write("Colunas detectadas:")
-        st.write(list(pos.columns))
+    tabela = tabela.reindex(sorted(tabela.columns), axis=1)
 
-        # preview
-        st.dataframe(pos.head())
+    mapa = (
+        df.drop_duplicates("Ordem")
+        .set_index("Ordem")["MesNome"]
+        .to_dict()
+    )
 
-    except Exception as e:
-        st.error(str(e))
+    tabela.rename(columns=mapa, inplace=True)
+
+    tabela["Total"] = tabela.sum(axis=1)
+
+    # ==========================================================
+    # EXPORTAR
+    # ==========================================================
+    tabela.to_excel(output_excel)
+
+    print("✅ Extração concluída")
+    print("Linhas encontradas:", len(tabela))
+
+    return True
