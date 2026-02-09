@@ -3,163 +3,173 @@ import os
 import pandas as pd
 from parser_proventos import extrair_proventos
 
-st.set_page_config(page_title="Extrator XP", layout="centered")
+st.set_page_config(page_title="Extrator XP", layout="wide")
 
-ADMIN_PASSWORD = "xp2026"
+# =====================================================
+# LIMPAR TELA
+# =====================================================
 
+if st.button("🔄 Limpar Tela"):
+    st.session_state.clear()
+    st.rerun()
 
-# ================= HEADER =================
+# =====================================================
+# FUNÇÃO CONSENSO XP
+# =====================================================
 
-st.title("📊 Extrator de Proventos – XP")
+def ler_consenso_xp():
 
-col1, col2 = st.columns(2)
+    if not os.path.exists("consenso_atual.xlsx"):
+        return None
 
-with col1:
-    if st.button("🔄 Limpar Tela"):
-        st.rerun()
+    df = pd.read_excel(
+        "consenso_atual.xlsx",
+        sheet_name="PDF",
+        header=2
+    )
 
-with col2:
-    st.link_button("🌐 Baixar Extratos XP", "https://portal.xpi.com.br/")
+    df = df.dropna(how="all")
 
+    # Detectar colunas automaticamente
+    col_ticker = [c for c in df.columns if "Ticker" in str(c)][0]
+    col_rec = [c for c in df.columns if "#" in str(c) and "Compra" in str(c)][0]
+    col_preco = [c for c in df.columns if "Consenso" in str(c)][0]
+    col_pot = [c for c in df.columns if "Potencial" in str(c)][0]
 
-# ================= LOGIN =================
+    df = df[[col_ticker, col_rec, col_preco, col_pot]]
 
-st.sidebar.title("🔐 Admin")
-admin_logado = False
-senha = st.sidebar.text_input("Senha admin", type="password")
+    df.columns = [
+        "Ticker",
+        "Recomendacao",
+        "Preco_Alvo",
+        "Potencial"
+    ]
 
-if senha == ADMIN_PASSWORD:
-    admin_logado = True
-    st.sidebar.success("Admin autenticado")
+    df["Ticker"] = df["Ticker"].astype(str).str.strip().str.upper()
+    df = df.dropna(subset=["Ticker"])
 
-
-# ================= INPUTS =================
-
-assessor = st.text_input("Código do Assessor")
-conta = st.text_input("Conta do Cliente")
-
-extrato = st.file_uploader("Extrato PDF", type="pdf")
-proventos = st.file_uploader("Proventos PDF", type="pdf")
-
-BASE_DIR = "uploads"
-
-
-# ================= PROVENTOS =================
-
-if st.button("Processar Proventos"):
-
-    if assessor and conta and extrato and proventos:
-
-        pasta = f"{BASE_DIR}/assessor_{assessor}/cliente_{conta}"
-        os.makedirs(pasta, exist_ok=True)
-
-        open(f"{pasta}/extrato.pdf","wb").write(extrato.read())
-        open(f"{pasta}/proventos.pdf","wb").write(proventos.read())
-
-        excel_path = f"{pasta}/relatorio.xlsx"
-
-        if extrair_proventos(f"{pasta}/proventos.pdf", excel_path):
-            with open(excel_path,"rb") as f:
-                st.download_button("⬇️ Baixar Relatório", f)
-        else:
-            st.error("Falha ao ler PDF")
-
-    else:
-        st.error("Preencha tudo")
+    return df
 
 
-# ================= CONSENSO ADMIN =================
+# =====================================================
+# HEADER
+# =====================================================
 
-if admin_logado:
+st.title("📊 Extrator de Proventos + Consenso XP")
 
-    st.divider()
-    st.header("📥 Upload Consenso XP")
+# =====================================================
+# UPLOAD CONSENSO (SÓ VOCÊ)
+# =====================================================
 
-    consenso_file = st.file_uploader("Enviar consenso", type=["xlsx","xlsm"])
+with st.expander("🔒 Upload Consenso XP (uso interno)"):
+    consenso_file = st.file_uploader(
+        "Enviar consenso",
+        type=["xlsx","xlsm"],
+        key="consenso"
+    )
 
     if consenso_file:
         with open("consenso_atual.xlsx","wb") as f:
             f.write(consenso_file.getbuffer())
         st.success("Consenso atualizado")
 
+# =====================================================
+# EXTRATOR PROVENTOS
+# =====================================================
 
-# ================= FUNÇÕES =================
+st.header("📥 Extrair Proventos")
 
-def ler_posicao_xp(file):
+assessor = st.text_input("Código Assessor")
+conta = st.text_input("Conta Cliente")
 
-    raw = pd.read_excel(file, header=None)
+extrato = st.file_uploader("Extrato PDF", type="pdf")
+proventos = st.file_uploader("Proventos PDF", type="pdf")
 
-    linha_header = None
-    for i in range(20):
-        linha = raw.iloc[i].astype(str).str.upper()
-        if any("ATIVO" in x for x in linha):
-            linha_header = i
-            break
+BASE_DIR = "uploads"
 
-    return pd.read_excel(file, header=linha_header)
+if st.button("Processar PDFs"):
 
+    if not assessor or not conta:
+        st.error("Preencha assessor e conta")
 
-def ler_consenso_xp():
+    elif not extrato or not proventos:
+        st.error("Envie os PDFs")
 
-    df = pd.read_excel(
-        "consenso_atual.xlsx",
-        sheet_name="PDF",
-        header=34
-    )
+    else:
 
-    df = df.dropna(how="all")
+        pasta = f"{BASE_DIR}/assessor_{assessor}/cliente_{conta}"
+        os.makedirs(pasta, exist_ok=True)
 
-    return df
+        extrato_path = f"{pasta}/extrato.pdf"
+        prov_path = f"{pasta}/proventos.pdf"
 
+        with open(extrato_path,"wb") as f:
+            f.write(extrato.read())
 
-def achar_coluna(df, palavras):
-    for p in palavras:
-        for c in df.columns:
-            if p in str(c).upper():
-                return c
-    return None
+        with open(prov_path,"wb") as f:
+            f.write(proventos.read())
 
+        excel_path = f"{pasta}/relatorio.xlsx"
 
-# ================= CRUZAMENTO =================
+        ok = extrair_proventos(prov_path, excel_path)
 
-st.divider()
+        if ok:
+            st.success("Relatório gerado")
+
+            with open(excel_path,"rb") as f:
+                st.download_button(
+                    "Baixar Excel",
+                    f,
+                    file_name="relatorio.xlsx"
+                )
+        else:
+            st.error("Não consegui ler o PDF")
+
+# =====================================================
+# CRUZAR POSIÇÃO X CONSENSO
+# =====================================================
+
 st.header("📈 Cruzar Posição x Consenso")
 
-posicao_file = st.file_uploader("Enviar posição", type=["xlsx"], key="pos")
+pos_file = st.file_uploader(
+    "Enviar posição consolidada",
+    type=["xlsx"],
+    key="pos"
+)
 
-if posicao_file:
+if pos_file:
 
-    posicao = ler_posicao_xp(posicao_file)
+    pos = pd.read_excel(pos_file, header=0)
+    pos.columns = pos.columns.astype(str)
+
+    st.write("Colunas detectadas:")
+    st.write(list(pos.columns))
+
+    col_ticker = [c for c in pos.columns if "Ativo" in c][0]
+    col_qtd = [c for c in pos.columns if "Total" in c or "Qtd" in c][-1]
+
+    pos = pos[[col_ticker, col_qtd]]
+    pos.columns = ["Ticker","Quantidade"]
+
+    pos["Ticker"] = pos["Ticker"].astype(str).str.upper()
+
     consenso = ler_consenso_xp()
 
-    col_ticker_pos = achar_coluna(posicao, ["ATIVO"])
-    col_ticker_con = achar_coluna(consenso, ["TICKER"])
-    col_alvo = achar_coluna(consenso, ["PREÇO-ALVO","ALVO"])
-    col_preco = achar_coluna(consenso, ["ATUAL"])
+    if consenso is None:
+        st.warning("Envie o consenso primeiro")
 
-    if not col_ticker_con:
-        st.error("Não achei TICKER no consenso")
-        st.write(list(consenso.columns))
-        st.stop()
+    else:
 
-    df_pos = posicao[[col_ticker_pos]].copy()
-    df_pos.columns = ["Ticker"]
+        final = pos.merge(consenso, on="Ticker", how="left")
 
-    df_con = consenso[[col_ticker_con, col_alvo, col_preco]].copy()
-    df_con.columns = ["Ticker","Preco_Alvo","Preco_Atual"]
+        st.success("Cruzamento pronto")
+        st.dataframe(final, use_container_width=True)
 
-    cruzado = df_pos.merge(df_con,on="Ticker",how="left")
+        excel = final.to_excel("cruzado.xlsx", index=False)
 
-    cruzado["Upside %"] = (
-        (cruzado["Preco_Alvo"] - cruzado["Preco_Atual"])
-        / cruzado["Preco_Atual"]
-    ) * 100
-
-    st.success("Cruzamento pronto")
-
-    st.dataframe(cruzado)
-
-    cruzado.to_excel("cruzamento.xlsx",index=False)
-
-    with open("cruzamento.xlsx","rb") as f:
-        st.download_button("⬇️ Baixar Cruzamento", f)
+        with open("cruzado.xlsx","rb") as f:
+            st.download_button(
+                "Baixar Cruzamento",
+                f,
+                file_name="posicao_consenso.xlsx"
+            )
