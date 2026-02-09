@@ -6,152 +6,172 @@ from parser_proventos import extrair_proventos
 st.set_page_config(page_title="Extrator XP", layout="wide")
 
 # =====================================================
+
 # LIMPAR TELA
+
 # =====================================================
 
 if st.button("🔄 Limpar Tela"):
-    st.session_state.clear()
-    st.rerun()
+st.session_state.clear()
+st.rerun()
 
 # =====================================================
-# FUNÇÃO CONSENSO XP
+
+# FUNÇÃO — ENCONTRAR HEADER REAL
+
+# =====================================================
+
+def ler_posicao_xp(file):
+
+```
+raw = pd.read_excel(file, header=None)
+
+header_row = None
+
+for i in range(len(raw)):
+    linha = raw.iloc[i].astype(str)
+    if linha.str.contains("Ativo").any():
+        header_row = i
+        break
+
+if header_row is None:
+    st.error("Não achei linha do header (Ativo)")
+    return None
+
+df = pd.read_excel(file, header=header_row)
+
+df.columns = df.columns.astype(str)
+
+col_ticker = [c for c in df.columns if "Ativo" in c][0]
+col_qtd = [c for c in df.columns if "Total" in c][-1]
+
+df = df[[col_ticker, col_qtd]]
+df.columns = ["Ticker","Quantidade"]
+
+df["Ticker"] = df["Ticker"].astype(str).str.upper()
+
+return df
+```
+
+# =====================================================
+
+# CONSENSO XP
+
 # =====================================================
 
 def ler_consenso_xp():
 
-    if not os.path.exists("consenso_atual.xlsx"):
-        return None
+```
+if not os.path.exists("consenso_atual.xlsx"):
+    return None
 
-    df = pd.read_excel(
-        "consenso_atual.xlsx",
-        sheet_name="PDF",
-        header=2
-    )
+raw = pd.read_excel("consenso_atual.xlsx", sheet_name="PDF", header=None)
 
-    df = df.dropna(how="all")
+header_row = None
 
-    # Detectar colunas automaticamente
-    col_ticker = [c for c in df.columns if "Ticker" in str(c)][0]
-    col_rec = [c for c in df.columns if "#" in str(c) and "Compra" in str(c)][0]
-    col_preco = [c for c in df.columns if "Consenso" in str(c)][0]
-    col_pot = [c for c in df.columns if "Potencial" in str(c)][0]
+for i in range(len(raw)):
+    linha = raw.iloc[i].astype(str)
 
-    df = df[[col_ticker, col_rec, col_preco, col_pot]]
+    if linha.str.contains("Ticker").any():
+        header_row = i
+        break
 
-    df.columns = [
-        "Ticker",
-        "Recomendacao",
-        "Preco_Alvo",
-        "Potencial"
-    ]
+df = pd.read_excel(
+    "consenso_atual.xlsx",
+    sheet_name="PDF",
+    header=header_row
+)
 
-    df["Ticker"] = df["Ticker"].astype(str).str.strip().str.upper()
-    df = df.dropna(subset=["Ticker"])
+df = df.dropna(how="all")
 
-    return df
+col_ticker = [c for c in df.columns if "Ticker" in str(c)][0]
+col_rec = [c for c in df.columns if "Compra" in str(c)][0]
+col_preco = [c for c in df.columns if "Consenso" in str(c)][0]
+col_pot = [c for c in df.columns if "Potencial" in str(c)][0]
 
+df = df[[col_ticker, col_rec, col_preco, col_pot]]
 
-# =====================================================
-# HEADER
-# =====================================================
+df.columns = ["Ticker","Recomendacao","Preco_Alvo","Potencial"]
 
-st.title("📊 Extrator de Proventos + Consenso XP")
+df["Ticker"] = df["Ticker"].astype(str).str.strip().str.upper()
 
-# =====================================================
-# UPLOAD CONSENSO (SÓ VOCÊ)
-# =====================================================
-
-with st.expander("🔒 Upload Consenso XP (uso interno)"):
-    consenso_file = st.file_uploader(
-        "Enviar consenso",
-        type=["xlsx","xlsm"],
-        key="consenso"
-    )
-
-    if consenso_file:
-        with open("consenso_atual.xlsx","wb") as f:
-            f.write(consenso_file.getbuffer())
-        st.success("Consenso atualizado")
+return df
+```
 
 # =====================================================
-# EXTRATOR PROVENTOS
+
+# UI
+
+# =====================================================
+
+st.title("📊 Extrator XP — Proventos + Consenso")
+
+# Upload Consenso (interno)
+
+with st.expander("🔒 Upload Consenso XP"):
+consenso_file = st.file_uploader("Enviar consenso", type=["xlsx","xlsm"])
+
+```
+if consenso_file:
+    with open("consenso_atual.xlsx","wb") as f:
+        f.write(consenso_file.getbuffer())
+    st.success("Consenso atualizado")
+```
+
+# =====================================================
+
+# PROVENTOS
+
 # =====================================================
 
 st.header("📥 Extrair Proventos")
 
-assessor = st.text_input("Código Assessor")
-conta = st.text_input("Conta Cliente")
+assessor = st.text_input("Assessor")
+conta = st.text_input("Conta")
 
 extrato = st.file_uploader("Extrato PDF", type="pdf")
 proventos = st.file_uploader("Proventos PDF", type="pdf")
 
-BASE_DIR = "uploads"
-
 if st.button("Processar PDFs"):
 
-    if not assessor or not conta:
-        st.error("Preencha assessor e conta")
+```
+pasta = f"uploads/{assessor}_{conta}"
+os.makedirs(pasta, exist_ok=True)
 
-    elif not extrato or not proventos:
-        st.error("Envie os PDFs")
+extrato_path = f"{pasta}/extrato.pdf"
+prov_path = f"{pasta}/prov.pdf"
 
-    else:
+with open(extrato_path,"wb") as f:
+    f.write(extrato.read())
 
-        pasta = f"{BASE_DIR}/assessor_{assessor}/cliente_{conta}"
-        os.makedirs(pasta, exist_ok=True)
+with open(prov_path,"wb") as f:
+    f.write(proventos.read())
 
-        extrato_path = f"{pasta}/extrato.pdf"
-        prov_path = f"{pasta}/proventos.pdf"
+excel_path = f"{pasta}/relatorio.xlsx"
 
-        with open(extrato_path,"wb") as f:
-            f.write(extrato.read())
+ok = extrair_proventos(prov_path, excel_path)
 
-        with open(prov_path,"wb") as f:
-            f.write(proventos.read())
-
-        excel_path = f"{pasta}/relatorio.xlsx"
-
-        ok = extrair_proventos(prov_path, excel_path)
-
-        if ok:
-            st.success("Relatório gerado")
-
-            with open(excel_path,"rb") as f:
-                st.download_button(
-                    "Baixar Excel",
-                    f,
-                    file_name="relatorio.xlsx"
-                )
-        else:
-            st.error("Não consegui ler o PDF")
+if ok:
+    with open(excel_path,"rb") as f:
+        st.download_button("Baixar Excel", f, file_name="relatorio.xlsx")
+```
 
 # =====================================================
-# CRUZAR POSIÇÃO X CONSENSO
+
+# CRUZAMENTO
+
 # =====================================================
 
 st.header("📈 Cruzar Posição x Consenso")
 
-pos_file = st.file_uploader(
-    "Enviar posição consolidada",
-    type=["xlsx"],
-    key="pos"
-)
+pos_file = st.file_uploader("Enviar posição XP", type="xlsx")
 
 if pos_file:
 
-    pos = pd.read_excel(pos_file, header=0)
-    pos.columns = pos.columns.astype(str)
+```
+pos = ler_posicao_xp(pos_file)
 
-    st.write("Colunas detectadas:")
-    st.write(list(pos.columns))
-
-    col_ticker = [c for c in pos.columns if "Ativo" in c][0]
-    col_qtd = [c for c in pos.columns if "Total" in c or "Qtd" in c][-1]
-
-    pos = pos[[col_ticker, col_qtd]]
-    pos.columns = ["Ticker","Quantidade"]
-
-    pos["Ticker"] = pos["Ticker"].astype(str).str.upper()
+if pos is not None:
 
     consenso = ler_consenso_xp()
 
@@ -162,14 +182,10 @@ if pos_file:
 
         final = pos.merge(consenso, on="Ticker", how="left")
 
-        st.success("Cruzamento pronto")
         st.dataframe(final, use_container_width=True)
 
-        excel = final.to_excel("cruzado.xlsx", index=False)
+        final.to_excel("cruzado.xlsx", index=False)
 
         with open("cruzado.xlsx","rb") as f:
-            st.download_button(
-                "Baixar Cruzamento",
-                f,
-                file_name="posicao_consenso.xlsx"
-            )
+            st.download_button("Baixar Cruzamento", f)
+```
