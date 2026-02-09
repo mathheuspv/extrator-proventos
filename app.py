@@ -9,7 +9,8 @@ from parser_proventos import extrair_proventos
 
 st.set_page_config(page_title="Extrator XP", layout="centered")
 
-ADMIN_PASSWORD = "xp2026"   # <<< MUDE AQUI
+ADMIN_PASSWORD = "xp2026"  # <<< MUDE AQUI SE QUISER
+
 
 # ===============================
 # HEADER
@@ -21,7 +22,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     if st.button("🔄 Limpar Tela"):
-        st.experimental_rerun()
+        st.rerun()
 
 with col2:
     st.link_button(
@@ -42,6 +43,7 @@ if senha == ADMIN_PASSWORD:
     admin_logado = True
     st.sidebar.success("Admin autenticado")
 
+
 # ===============================
 # INPUTS CLIENTE
 # ===============================
@@ -53,6 +55,7 @@ extrato = st.file_uploader("Extrato PDF", type="pdf")
 proventos = st.file_uploader("Proventos PDF", type="pdf")
 
 BASE_DIR = "uploads"
+
 
 # ===============================
 # PROCESSAR PROVENTOS
@@ -142,13 +145,13 @@ if posicao_file:
         st.error("Consenso ainda não carregado no sistema")
         st.stop()
 
-    # ========= achar colunas automaticamente =========
+    # ===== achar colunas automaticamente =====
 
     def achar_coluna(df, termos):
-        for t in termos:
-            for c in df.columns:
-                if t in c.upper():
-                    return c
+        for termo in termos:
+            for col in df.columns:
+                if termo in col.upper():
+                    return col
         return None
 
     col_pos = achar_coluna(posicao, ["TICK", "ATIVO", "COD"])
@@ -168,10 +171,13 @@ if posicao_file:
 
     cruzado = df_pos.merge(df_con, on="Ticker", how="left")
 
-    cruzado["Upside %"] = (
-        (cruzado["Preco_Alvo"] - cruzado["Preco_Atual"])
-        / cruzado["Preco_Atual"]
-    ) * 100
+    # ===== calcular upside =====
+
+    if "Preco_Alvo" in cruzado.columns and "Preco_Atual" in cruzado.columns:
+        cruzado["Upside %"] = (
+            (cruzado["Preco_Alvo"] - cruzado["Preco_Atual"])
+            / cruzado["Preco_Atual"]
+        ) * 100
 
     st.success("Cruzamento concluído")
 
