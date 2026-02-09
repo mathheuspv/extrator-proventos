@@ -4,20 +4,13 @@ import re
 from datetime import datetime
 
 
-# ==========================================================
-# FUNÇÃO PRINCIPAL
-# ==========================================================
 def extrair_proventos(pdf_path, output_excel):
 
     registros = []
     ticker_atual = None
 
-    print("🔎 Lendo PDF...")
-
     with pdfplumber.open(pdf_path) as pdf:
-
         for page in pdf.pages:
-
             texto = page.extract_text()
 
             if not texto:
@@ -27,27 +20,22 @@ def extrair_proventos(pdf_path, output_excel):
 
             for linha in linhas:
 
-                # ==================================================
-                # DETECTAR TICKER (ROBUSTO)
-                # ==================================================
-                ticker_match = re.search(r"\b[A-Z]{4}\d{1,2}\b", linha)
-
-                if ticker_match:
+                # Detectar ticker
+                ticker_match = re.search(r"\b[A-Z]{4}\d\b", linha)
+                if ticker_match and ">>>" in linha:
                     ticker_atual = ticker_match.group()
+                    continue
 
-                # ==================================================
-                # DETECTAR DATA + VALOR
-                # ==================================================
+                # Linhas com pagamento
                 if ticker_atual:
 
-                    data_match = re.search(r"\d{2}/\d{2}/\d{4}", linha)
+                    data = re.search(r"\d{2}/\d{2}/\d{4}", linha)
                     valores = re.findall(r"R\$\s?[\d.,]+", linha)
 
-                    if data_match and valores:
+                    if data and valores:
 
                         try:
                             valor = valores[-1]
-
                             valor = (
                                 valor.replace("R$", "")
                                 .replace(".", "")
@@ -55,10 +43,7 @@ def extrair_proventos(pdf_path, output_excel):
                                 .strip()
                             )
 
-                            dt = datetime.strptime(
-                                data_match.group(),
-                                "%d/%m/%Y"
-                            )
+                            dt = datetime.strptime(data.group(), "%d/%m/%Y")
 
                             registros.append({
                                 "Ativo": ticker_atual,
@@ -67,25 +52,13 @@ def extrair_proventos(pdf_path, output_excel):
                                 "MesNome": dt.strftime("%b/%y"),
                                 "Valor": float(valor)
                             })
-
-                        except Exception as e:
-                            print("Erro parse:", e)
+                        except:
                             pass
 
-
-    # ==========================================================
-    # SE NÃO ENCONTROU NADA
-    # ==========================================================
     if not registros:
-        print("❌ Nenhum provento encontrado")
         return False
 
-
-    # ==========================================================
-    # TABELA FINAL
-    # ==========================================================
     df = pd.DataFrame(registros)
-
     df["Ordem"] = df["Ano"] * 100 + df["MesNum"]
 
     tabela = df.pivot_table(
@@ -105,15 +78,8 @@ def extrair_proventos(pdf_path, output_excel):
     )
 
     tabela.rename(columns=mapa, inplace=True)
-
     tabela["Total"] = tabela.sum(axis=1)
 
-    # ==========================================================
-    # EXPORTAR
-    # ==========================================================
     tabela.to_excel(output_excel)
-
-    print("✅ Extração concluída")
-    print("Linhas encontradas:", len(tabela))
 
     return True
