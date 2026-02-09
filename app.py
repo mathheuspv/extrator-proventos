@@ -80,32 +80,44 @@ if admin_logado:
     if consenso_file:
         with open("consenso_atual.xlsx","wb") as f:
             f.write(consenso_file.getbuffer())
-
         st.success("Consenso atualizado")
 
 
-# ================= FUNÇÃO DETECT HEADER XP =================
+# ================= FUNÇÕES =================
 
 def ler_posicao_xp(file):
 
     raw = pd.read_excel(file, header=None)
 
     linha_header = None
-
     for i in range(20):
         linha = raw.iloc[i].astype(str).str.upper()
-
         if any("ATIVO" in x for x in linha):
             linha_header = i
             break
 
-    if linha_header is None:
-        st.error("Não achei início da tabela XP")
-        st.stop()
+    return pd.read_excel(file, header=linha_header)
 
-    df = pd.read_excel(file, header=linha_header)
+
+def ler_consenso_xp():
+
+    df = pd.read_excel(
+        "consenso_atual.xlsx",
+        sheet_name="PDF",
+        header=34
+    )
+
+    df = df.dropna(how="all")
 
     return df
+
+
+def achar_coluna(df, palavras):
+    for p in palavras:
+        for c in df.columns:
+            if p in str(c).upper():
+                return c
+    return None
 
 
 # ================= CRUZAMENTO =================
@@ -118,26 +130,22 @@ posicao_file = st.file_uploader("Enviar posição", type=["xlsx"], key="pos")
 if posicao_file:
 
     posicao = ler_posicao_xp(posicao_file)
-    consenso = pd.read_excel("consenso_atual.xlsx")
+    consenso = ler_consenso_xp()
 
-    st.write("Colunas posição detectadas:")
-    st.write(list(posicao.columns))
+    col_ticker_pos = achar_coluna(posicao, ["ATIVO"])
+    col_ticker_con = achar_coluna(consenso, ["TICKER"])
+    col_alvo = achar_coluna(consenso, ["PREÇO-ALVO","ALVO"])
+    col_preco = achar_coluna(consenso, ["ATUAL"])
 
-    # localizar ticker
-    ticker_col = None
-    for c in posicao.columns:
-        if "ATIVO" in str(c).upper():
-            ticker_col = c
-
-    if ticker_col is None:
-        st.error("Não achei coluna ATIVO")
+    if not col_ticker_con:
+        st.error("Não achei TICKER no consenso")
+        st.write(list(consenso.columns))
         st.stop()
 
-    df_pos = posicao[[ticker_col]].copy()
+    df_pos = posicao[[col_ticker_pos]].copy()
     df_pos.columns = ["Ticker"]
 
-    # consenso (assume padrão)
-    df_con = consenso.iloc[:,0:3]
+    df_con = consenso[[col_ticker_con, col_alvo, col_preco]].copy()
     df_con.columns = ["Ticker","Preco_Alvo","Preco_Atual"]
 
     cruzado = df_pos.merge(df_con,on="Ticker",how="left")
